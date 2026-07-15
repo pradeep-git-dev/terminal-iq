@@ -44,6 +44,8 @@ public class InteractiveShell {
                 .terminal(terminal)
                 .build();
 
+            this.router.setTerminal(terminal);
+
         } catch (IOException e) {
             System.err.println("Failed to initialize JLine Terminal: " + e.getMessage());
             System.out.println("Falling back to standard Console...");

@@ -2,61 +2,96 @@ package com.terminaliq.router;
 
 import com.terminaliq.context.ShellContext;
 import com.terminaliq.execution.CommandExecutor;
-import java.io.IOException;
+import com.terminaliq.execution.ExecutionResult;
+import com.terminaliq.history.HistoryEntry;
+import com.terminaliq.history.HistoryRepository;
+import org.jline.terminal.Terminal;
 
 public class CommandRouter {
 
     private final ShellContext context;
     private final CommandExecutor executor;
+    private final BuiltInCommandHandler builtInHandler;
+    private final HistoryRepository historyRepository;
     private boolean running = true;
 
-    public CommandRouter(ShellContext context, CommandExecutor executor) {
+    public CommandRouter(ShellContext context, CommandExecutor executor, HistoryRepository historyRepository) {
         this.context = context;
         this.executor = executor;
+        this.historyRepository = historyRepository;
+        this.builtInHandler = new BuiltInCommandHandler(context, historyRepository);
+    }
+
+    public void setTerminal(Terminal terminal) {
+        this.builtInHandler.setTerminal(terminal);
     }
 
     public void route(String input) {
         if (input == null) {
             return;
         }
-        input = input.trim();
-        if (input.isEmpty()) {
+        String trimmedInput = input.trim();
+        if (trimmedInput.isEmpty()) {
             return;
         }
 
         // Handle Windows directory shorthand like 'cd..' or 'cd..\foo'
-        if (input.equalsIgnoreCase("cd..")) {
-            input = "cd ..";
-        } else if (input.toLowerCase().startsWith("cd..")) {
-            input = "cd .." + input.substring(4);
+        String resolvedInput = trimmedInput;
+        if (resolvedInput.equalsIgnoreCase("cd..")) {
+            resolvedInput = "cd ..";
+        } else if (resolvedInput.toLowerCase().startsWith("cd..")) {
+            resolvedInput = "cd .." + resolvedInput.substring(4);
         }
 
-        // Handle exit
-        if (input.equalsIgnoreCase("exit")) {
+        String commandName = getCommandName(resolvedInput);
+
+        if (commandName.equalsIgnoreCase("exit")) {
             this.running = false;
             return;
         }
 
-        // Handle cd
-        if (input.equalsIgnoreCase("cd") || input.toLowerCase().startsWith("cd ") || input.toLowerCase().startsWith("cd\t")) {
-            String targetPath = "";
-            if (input.toLowerCase().startsWith("cd ") || input.toLowerCase().startsWith("cd\t")) {
-                targetPath = input.substring(3).trim();
-            }
-            try {
-                context.changeDirectory(targetPath);
-            } catch (IOException e) {
-                System.err.println(e.getMessage());
-            }
-            return;
+        if (isBuiltIn(commandName)) {
+            builtInHandler.handle(commandName, resolvedInput);
+        } else {
+            // Native Command
+            ExecutionResult result = executor.execute(resolvedInput);
+            
+            // Store native executed commands in history
+            HistoryEntry entry = new HistoryEntry(
+                resolvedInput,
+                context.getCurrentDirectory().toString(),
+                result.getExitCode(),
+                result.getDurationMs()
+            );
+            historyRepository.save(entry);
+        }
+    }
+
+    private String getCommandName(String input) {
+        int firstSpace = input.indexOf(' ');
+        int firstTab = input.indexOf('\t');
+        int splitIdx = -1;
+        if (firstSpace != -1 && firstTab != -1) {
+            splitIdx = Math.min(firstSpace, firstTab);
+        } else if (firstSpace != -1) {
+            splitIdx = firstSpace;
+        } else if (firstTab != -1) {
+            splitIdx = firstTab;
         }
 
-        // Delegate other commands to native executor
-        int exitCode = executor.execute(input);
-        if (exitCode != 0) {
-            // Diagnostic logging for non-zero exit codes if desired
-            // System.out.println("[Process exited with code " + exitCode + "]");
+        if (splitIdx == -1) {
+            return input;
         }
+        return input.substring(0, splitIdx);
+    }
+
+    private boolean isBuiltIn(String commandName) {
+        return commandName.equalsIgnoreCase("cd")
+                || commandName.equalsIgnoreCase("history")
+                || commandName.equalsIgnoreCase("clear")
+                || commandName.equalsIgnoreCase("cls")
+                || commandName.equalsIgnoreCase("pwd")
+                || commandName.equalsIgnoreCase("help");
     }
 
     public boolean isRunning() {

@@ -13,7 +13,7 @@ public class CommandExecutor {
         this.context = context;
     }
 
-    public int execute(String command) {
+    public ExecutionResult execute(String command) {
         ProcessBuilder pb = new ProcessBuilder(
             "powershell.exe",
             "-NoLogo",
@@ -29,15 +29,17 @@ public class CommandExecutor {
         // and connects stdin for interactive tools (like git commit, ping, npm login etc.)
         pb.inheritIO();
 
+        long startTime = System.currentTimeMillis();
+        int exitCode = -1;
+
         try {
             Process process = pb.start();
             activeProcess.set(process);
 
-            int exitCode = process.waitFor();
-            return exitCode;
+            exitCode = process.waitFor();
         } catch (IOException e) {
             System.err.println("Failed to start process: " + e.getMessage());
-            return -1;
+            exitCode = -1;
         } catch (InterruptedException e) {
             System.err.println("\nCommand execution interrupted.");
             Process process = activeProcess.get();
@@ -45,10 +47,13 @@ public class CommandExecutor {
                 process.destroyForcibly();
             }
             Thread.currentThread().interrupt(); // Restore interrupted status
-            return -1;
+            exitCode = -1;
         } finally {
             activeProcess.set(null);
         }
+
+        long durationMs = System.currentTimeMillis() - startTime;
+        return new ExecutionResult(command, exitCode, durationMs);
     }
 
     public void interrupt() {

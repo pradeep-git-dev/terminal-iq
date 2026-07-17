@@ -1,6 +1,7 @@
 package com.terminaliq.cli;
 
 import com.terminaliq.context.ShellContext;
+import com.terminaliq.context.ProjectContext;
 import com.terminaliq.execution.CommandExecutor;
 import com.terminaliq.router.CommandRouter;
 import org.jline.reader.EndOfFileException;
@@ -90,6 +91,8 @@ public class InteractiveShell {
     private String buildPrompt() {
         String username = context.getUsername();
         String currentDir = context.getCurrentDirectory().toString();
-        return username + "@terminal-iq " + currentDir + "> ";
+        ProjectContext projectCtx = context.getProjectContext();
+        String projectType = projectCtx != null ? projectCtx.getProjectType().toString() : "UNKNOWN";
+        return username + "@terminal-iq [" + projectType + "] " + currentDir + "> ";
     }
 }

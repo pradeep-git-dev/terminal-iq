@@ -9,11 +9,15 @@ public class ShellContext {
 
     private Path currentDirectory;
     private final String username;
+    private final ContextEngine contextEngine;
+    private ProjectContext projectContext;
 
     public ShellContext() {
         // Initialize to JVM current directory
         this.currentDirectory = Paths.get(System.getProperty("user.dir")).toAbsolutePath().normalize();
         this.username = System.getProperty("user.name", "user");
+        this.contextEngine = new ContextEngine();
+        this.projectContext = this.contextEngine.refresh(this.currentDirectory);
     }
 
     public Path getCurrentDirectory() {
@@ -22,6 +26,10 @@ public class ShellContext {
 
     public String getUsername() {
         return username;
+    }
+
+    public ProjectContext getProjectContext() {
+        return projectContext;
     }
 
     public void changeDirectory(String targetPath) throws IOException {
@@ -61,5 +69,6 @@ public class ShellContext {
         }
 
         this.currentDirectory = newDir;
+        this.projectContext = this.contextEngine.refresh(this.currentDirectory);
     }
 }

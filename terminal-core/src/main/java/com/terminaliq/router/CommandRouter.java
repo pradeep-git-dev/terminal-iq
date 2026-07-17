@@ -91,7 +91,8 @@ public class CommandRouter {
                 || commandName.equalsIgnoreCase("clear")
                 || commandName.equalsIgnoreCase("cls")
                 || commandName.equalsIgnoreCase("pwd")
-                || commandName.equalsIgnoreCase("help");
+                || commandName.equalsIgnoreCase("help")
+                || commandName.equalsIgnoreCase("context");
     }
 
     public boolean isRunning() {

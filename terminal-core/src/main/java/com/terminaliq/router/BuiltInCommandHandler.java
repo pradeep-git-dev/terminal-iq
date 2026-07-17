@@ -1,6 +1,7 @@
 package com.terminaliq.router;
 
 import com.terminaliq.context.ShellContext;
+import com.terminaliq.context.ProjectContext;
 import com.terminaliq.history.HistoryEntry;
 import com.terminaliq.history.HistoryRepository;
 import org.jline.terminal.Terminal;
@@ -35,6 +36,8 @@ public class BuiltInCommandHandler {
             executeClear();
         } else if (commandName.equalsIgnoreCase("help")) {
             executeHelp();
+        } else if (commandName.equalsIgnoreCase("context")) {
+            executeContext();
         }
     }
 
@@ -54,6 +57,26 @@ public class BuiltInCommandHandler {
         System.out.println(context.getCurrentDirectory());
     }
 
+    private void executeContext() {
+        ProjectContext projectCtx = context.getProjectContext();
+        if (projectCtx == null) {
+            System.out.println("No context available.");
+            return;
+        }
+
+        System.out.println("Project Name : " + projectCtx.getProjectName());
+        System.out.println();
+        System.out.println("Type         : " + projectCtx.getProjectType());
+        System.out.println();
+        System.out.println("Git          : " + (projectCtx.isGitRepository() ? "Yes" : "No"));
+        System.out.println("Docker       : " + (projectCtx.isDockerProject() ? "Yes" : "No"));
+        System.out.println("Node         : " + (projectCtx.isNodeProject() ? "Yes" : "No"));
+        System.out.println("Python       : " + (projectCtx.isPythonProject() ? "Yes" : "No"));
+        System.out.println();
+        System.out.println("Current Path :");
+        System.out.println(projectCtx.getCurrentDirectory());
+    }
+
     private void executeClear() {
         if (terminal != null) {
             terminal.puts(InfoCmp.Capability.clear_screen);
@@ -71,6 +94,7 @@ public class BuiltInCommandHandler {
         System.out.println("pwd             Show current directory");
         System.out.println("history [limit] Show command history");
         System.out.println("clear           Clear terminal");
+        System.out.println("context         Show project context");
         System.out.println("help            Show available commands");
         System.out.println("exit            Exit Terminal-IQ");
     }

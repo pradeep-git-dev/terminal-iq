@@ -1,10 +1,15 @@
 package com.terminaliq.router;
 
+import com.terminaliq.commands.CommandCommandHandler;
+import com.terminaliq.commands.CommandRegistry;
+import com.terminaliq.commands.CustomCommand;
+import com.terminaliq.commands.CustomCommandEngine;
 import com.terminaliq.context.ShellContext;
 import com.terminaliq.execution.CommandExecutor;
 import com.terminaliq.execution.ExecutionResult;
 import com.terminaliq.history.HistoryEntry;
 import com.terminaliq.history.HistoryRepository;
+import org.jline.reader.LineReader;
 import org.jline.terminal.Terminal;
 
 public class CommandRouter {
@@ -13,17 +18,30 @@ public class CommandRouter {
     private final CommandExecutor executor;
     private final BuiltInCommandHandler builtInHandler;
     private final HistoryRepository historyRepository;
+    private final CommandRegistry commandRegistry;
+    private final CustomCommandEngine customCommandEngine;
+    private final CommandCommandHandler commandCommandHandler;
     private boolean running = true;
 
-    public CommandRouter(ShellContext context, CommandExecutor executor, HistoryRepository historyRepository) {
+    public CommandRouter(ShellContext context, CommandExecutor executor, HistoryRepository historyRepository,
+                         CommandRegistry commandRegistry, CustomCommandEngine customCommandEngine,
+                         CommandCommandHandler commandCommandHandler) {
         this.context = context;
         this.executor = executor;
         this.historyRepository = historyRepository;
+        this.commandRegistry = commandRegistry;
+        this.customCommandEngine = customCommandEngine;
+        this.commandCommandHandler = commandCommandHandler;
         this.builtInHandler = new BuiltInCommandHandler(context, historyRepository);
     }
 
     public void setTerminal(Terminal terminal) {
         this.builtInHandler.setTerminal(terminal);
+        this.commandCommandHandler.setTerminal(terminal);
+    }
+
+    public void setLineReader(LineReader reader) {
+        this.commandCommandHandler.setLineReader(reader);
     }
 
     public void route(String input) {
@@ -50,20 +68,35 @@ public class CommandRouter {
             return;
         }
 
-        if (isBuiltIn(commandName)) {
+        if (commandName.equalsIgnoreCase("command")) {
+            commandCommandHandler.handle(resolvedInput);
+        } else if (isBuiltIn(commandName)) {
             builtInHandler.handle(commandName, resolvedInput);
         } else {
-            // Native Command
-            ExecutionResult result = executor.execute(resolvedInput);
-            
-            // Store native executed commands in history
-            HistoryEntry entry = new HistoryEntry(
-                resolvedInput,
-                context.getCurrentDirectory().toString(),
-                result.getExitCode(),
-                result.getDurationMs()
-            );
-            historyRepository.save(entry);
+            // Check if it's a Custom Command
+            CustomCommand customCmd = commandRegistry.findByName(commandName);
+            if (customCmd != null) {
+                ExecutionResult result = customCommandEngine.execute(customCmd, resolvedInput);
+                HistoryEntry entry = new HistoryEntry(
+                    resolvedInput,
+                    context.getCurrentDirectory().toString(),
+                    result.getExitCode(),
+                    result.getDurationMs()
+                );
+                historyRepository.save(entry);
+            } else {
+                // Native Command
+                ExecutionResult result = executor.execute(resolvedInput);
+                
+                // Store native executed commands in history
+                HistoryEntry entry = new HistoryEntry(
+                    resolvedInput,
+                    context.getCurrentDirectory().toString(),
+                    result.getExitCode(),
+                    result.getDurationMs()
+                );
+                historyRepository.save(entry);
+            }
         }
     }
 

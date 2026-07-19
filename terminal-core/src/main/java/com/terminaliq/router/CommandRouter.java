@@ -11,6 +11,12 @@ import com.terminaliq.history.HistoryEntry;
 import com.terminaliq.history.HistoryRepository;
 import org.jline.reader.LineReader;
 import org.jline.terminal.Terminal;
+import com.terminaliq.intelligence.AIRequest;
+import com.terminaliq.intelligence.AIResponse;
+import com.terminaliq.intelligence.IntelligenceClient;
+import com.terminaliq.safety.SafetyEngine;
+import com.terminaliq.safety.SafetyEngine.SafetyResult;
+import java.util.UUID;
 
 public class CommandRouter {
 
@@ -21,6 +27,9 @@ public class CommandRouter {
     private final CommandRegistry commandRegistry;
     private final CustomCommandEngine customCommandEngine;
     private final CommandCommandHandler commandCommandHandler;
+    private final IntelligenceClient intelligenceClient;
+    private final SafetyEngine safetyEngine;
+    private LineReader lineReader;
     private boolean running = true;
 
     public CommandRouter(ShellContext context, CommandExecutor executor, HistoryRepository historyRepository,
@@ -33,6 +42,13 @@ public class CommandRouter {
         this.customCommandEngine = customCommandEngine;
         this.commandCommandHandler = commandCommandHandler;
         this.builtInHandler = new BuiltInCommandHandler(context, historyRepository);
+
+        String serviceUrl = System.getenv("INTELLIGENCE_SERVICE_URL");
+        if (serviceUrl == null || serviceUrl.trim().isEmpty()) {
+            serviceUrl = "http://localhost:8000";
+        }
+        this.intelligenceClient = new IntelligenceClient(serviceUrl);
+        this.safetyEngine = new SafetyEngine();
     }
 
     public void setTerminal(Terminal terminal) {
@@ -41,6 +57,7 @@ public class CommandRouter {
     }
 
     public void setLineReader(LineReader reader) {
+        this.lineReader = reader;
         this.commandCommandHandler.setLineReader(reader);
     }
 
@@ -59,6 +76,32 @@ public class CommandRouter {
             resolvedInput = "cd ..";
         } else if (resolvedInput.toLowerCase().startsWith("cd..")) {
             resolvedInput = "cd .." + resolvedInput.substring(4);
+        }
+
+        // Check if it is an AI Query prefix
+        boolean isAiQuery = false;
+        String aiQueryText = "";
+        String lowerInput = resolvedInput.toLowerCase();
+        if (lowerInput.startsWith("ai ") && resolvedInput.length() > 3) {
+            isAiQuery = true;
+            aiQueryText = resolvedInput.substring(3).trim();
+        } else if (lowerInput.startsWith("ai:") && resolvedInput.length() > 3) {
+            isAiQuery = true;
+            aiQueryText = resolvedInput.substring(3).trim();
+        } else if (lowerInput.startsWith("/ai ") && resolvedInput.length() > 4) {
+            isAiQuery = true;
+            aiQueryText = resolvedInput.substring(4).trim();
+        } else if (lowerInput.startsWith("/ai") && resolvedInput.length() > 3) {
+            isAiQuery = true;
+            aiQueryText = resolvedInput.substring(3).trim();
+        } else if (lowerInput.equals("ai") || lowerInput.equals("ai:") || lowerInput.equals("/ai")) {
+            System.out.println("Usage: ai <natural language query>");
+            return;
+        }
+
+        if (isAiQuery) {
+            handleAiQuery(aiQueryText);
+            return;
         }
 
         String commandName = getCommandName(resolvedInput);
@@ -97,6 +140,110 @@ public class CommandRouter {
                 );
                 historyRepository.save(entry);
             }
+        }
+    }
+
+    private void handleAiQuery(String query) {
+        String requestId = UUID.randomUUID().toString();
+        String shell = "powershell";
+        String os = "windows";
+        
+        com.terminaliq.context.ProjectContext projectCtx = context.getProjectContext();
+        String projectType = projectCtx != null ? projectCtx.getProjectType().toString() : "UNKNOWN";
+        String currentDirectory = context.getCurrentDirectory().toString();
+
+        AIRequest request = new AIRequest(requestId, query, shell, os, projectType, currentDirectory);
+
+        try {
+            System.out.println("Querying AI Service...");
+            AIResponse response = intelligenceClient.generate(request);
+
+            if (response.getCommand() == null || response.getCommand().trim().isEmpty()) {
+                System.out.println("\nAI could not confidently generate a command.");
+                if (response.getExplanation() != null && !response.getExplanation().isEmpty()) {
+                    System.out.println("Reason: " + response.getExplanation());
+                } else {
+                    System.out.println("Please rephrase your request.");
+                }
+                return;
+            }
+
+            String suggestedCommand = response.getCommand();
+
+            // Safety Engine check
+            SafetyResult safetyResult = safetyEngine.check(suggestedCommand);
+            
+            if (safetyResult.getLevel() == SafetyEngine.Level.BLOCKED) {
+                System.out.println("\n[SAFETY BLOCK] The suggested command is blocked due to safety policies.");
+                System.out.println("Command: " + suggestedCommand);
+                System.out.println("Reason: " + safetyResult.getReason());
+                return;
+            }
+
+            if (safetyResult.getLevel() == SafetyEngine.Level.WARNING) {
+                System.out.println("\n[WARNING] This command is flagged as DANGEROUS!");
+                System.out.println("Reason: " + safetyResult.getReason());
+            }
+
+            System.out.println("\nSuggested Command:");
+            System.out.println(suggestedCommand);
+            System.out.println("\nExplanation:");
+            System.out.println(response.getExplanation());
+            
+            if (response.getReason() != null && !response.getReason().trim().isEmpty()) {
+                System.out.println("\nSafety Notes:");
+                System.out.println(response.getReason());
+            }
+            
+            System.out.println("\n[Request ID: " + requestId + " | Prompt Version: " + response.getPromptVersion() + "]");
+            System.out.println();
+
+            boolean confirmed = promptConfirmation("Execute? (Y/n) ");
+            if (confirmed) {
+                System.out.println("Executing command...\n");
+                ExecutionResult result = executor.execute(suggestedCommand);
+                HistoryEntry entry = new HistoryEntry(
+                    suggestedCommand,
+                    context.getCurrentDirectory().toString(),
+                    result.getExitCode(),
+                    result.getDurationMs()
+                );
+                historyRepository.save(entry);
+            } else {
+                System.out.println("Execution aborted.");
+            }
+
+        } catch (Exception e) {
+            System.out.println("\nAI could not confidently generate a command.");
+            System.out.println("Please rephrase your request.");
+        }
+    }
+
+    private boolean promptConfirmation(String promptText) {
+        if (lineReader != null) {
+            try {
+                String line = lineReader.readLine(promptText).trim();
+                return line.isEmpty() || line.equalsIgnoreCase("y") || line.equalsIgnoreCase("yes");
+            } catch (org.jline.reader.UserInterruptException | org.jline.reader.EndOfFileException e) {
+                System.out.println("\nExecution cancelled.");
+                return false;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+        
+        System.out.print(promptText);
+        System.out.flush();
+        try {
+            java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(System.in));
+            String line = br.readLine();
+            if (line == null) {
+                return false;
+            }
+            line = line.trim();
+            return line.isEmpty() || line.equalsIgnoreCase("y") || line.equalsIgnoreCase("yes");
+        } catch (Exception e) {
+            return false;
         }
     }
 

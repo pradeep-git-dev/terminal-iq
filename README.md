@@ -159,9 +159,6 @@ Run automated unit tests for `terminal-core`:
 cd terminal-core
 mvn test
 ```
-
----
-
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).

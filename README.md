@@ -153,7 +153,7 @@ Once inside the interactive shell, you can run standard terminal commands, AI pr
 
 ## 🧪 Testing
 
-Run automated unit tests for `terminal-core`:
+Run automated tests for `terminal-core`:
 
 ```bash
 cd terminal-core
